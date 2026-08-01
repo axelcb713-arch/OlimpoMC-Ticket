@@ -27,6 +27,13 @@ const commands = [
     ),
  
   new SlashCommandBuilder()
+    .setName("tagrole")
+    .setDescription("Taguea a un rol específico en el ticket")
+    .addRoleOption((option) =>
+      option.setName("rol").setDescription("Rol a taguear").setRequired(true)
+    ),
+ 
+  new SlashCommandBuilder()
     .setName("transfer")
     .setDescription("Transfiere el ticket a otra categoría")
     .addStringOption((option) => {
@@ -53,4 +60,3 @@ const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
     console.error(error);
   }
 })();
- 
