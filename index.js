@@ -265,29 +265,35 @@ client.on("interactionCreate", async (interaction) => {
       });
  
       const embed = new EmbedBuilder()
-        .setTitle(`${category.emoji} ${category.label}`)
-        .setDescription(`Ticket abierto por ${interaction.user}.`)
+        .setTitle(`${interaction.user.username} Support`)
+        .setDescription(
+          `Gracias por contactar soporte, un miembro del staff te atenderá.\nCategoría: ${category.label}`
+        )
         .addFields(
           category.fields.map((field) => ({
             name: field.label,
             value: interaction.fields.getTextInputValue(field.id) || "-",
-            inline: field.style !== "Paragraph",
+            inline: false,
           }))
         )
         .setColor(0x2b6cb0)
-        .setFooter({ text: "Sin reclamar" });
+        .setFooter({
+          text: `${interaction.user.username} • Sin reclamar`,
+          iconURL: interaction.user.displayAvatarURL(),
+        })
+        .setTimestamp();
  
       const claimButton = new ButtonBuilder()
         .setCustomId("ticket_claim")
-        .setLabel("Reclamar")
+        .setLabel("Claim")
         .setStyle(ButtonStyle.Success)
-        .setEmoji("🎟️");
+        .setEmoji("🎫");
  
       const closeButton = new ButtonBuilder()
         .setCustomId("ticket_close")
-        .setLabel("Eliminar")
+        .setLabel("Delete")
         .setStyle(ButtonStyle.Danger)
-        .setEmoji("🔒");
+        .setEmoji("🗑️");
  
       const row = new ActionRowBuilder().addComponents(claimButton, closeButton);
  
@@ -301,7 +307,7 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
  
-    // ---------- Botón Reclamar ----------
+    // ---------- Botón Claim ----------
     if (interaction.isButton() && interaction.customId === "ticket_claim") {
       if (!isStaffInChannel(interaction)) {
         await interaction.reply({ content: "Solo el staff puede reclamar tickets.", ephemeral: true });
@@ -311,23 +317,30 @@ client.on("interactionCreate", async (interaction) => {
       const oldEmbed = interaction.message.embeds[0];
       const newEmbed = EmbedBuilder.from(oldEmbed).setFooter({
         text: `Reclamado por ${interaction.user.username}`,
+        iconURL: interaction.user.displayAvatarURL(),
       });
  
       const claimButton = new ButtonBuilder()
         .setCustomId("ticket_claim")
         .setLabel(`Reclamado por ${interaction.user.username}`)
         .setStyle(ButtonStyle.Secondary)
-        .setEmoji("🎟️")
+        .setEmoji("🎫")
         .setDisabled(true);
  
       const closeButton = new ButtonBuilder()
         .setCustomId("ticket_close")
-        .setLabel("Eliminar")
+        .setLabel("Delete")
         .setStyle(ButtonStyle.Danger)
-        .setEmoji("🔒");
+        .setEmoji("🗑️");
  
       const row = new ActionRowBuilder().addComponents(claimButton, closeButton);
       await interaction.update({ embeds: [newEmbed], components: [row] });
+ 
+      const ownerId = interaction.channel.topic;
+      const ownerMention = ownerId ? `<@${ownerId}>` : "usuario";
+      await interaction.channel.send(
+        `Hola, ${ownerMention}! tu ticket será atendido por ${interaction.user}, del equipo de soporte.`
+      );
       return;
     }
  
@@ -351,3 +364,4 @@ client.on("interactionCreate", async (interaction) => {
 });
  
 client.login(process.env.DISCORD_TOKEN);
+ 
