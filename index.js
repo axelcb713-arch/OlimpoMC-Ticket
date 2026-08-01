@@ -12,6 +12,7 @@ const {
   TextInputStyle,
   PermissionFlagsBits,
   ChannelType,
+  AttachmentBuilder,
 } = require("discord.js");
 const { ticketCategories, transferCategories, REPORTS_STAFF_ROLE_ID } = require("./config");
  
@@ -21,6 +22,7 @@ const client = new Client({
  
 const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID;
 const TICKET_CATEGORY_ID = process.env.TICKET_CATEGORY_ID || null;
+const TRANSCRIPT_CHANNEL_ID = process.env.TRANSCRIPT_CHANNEL_ID || null;
  
 client.once("ready", () => {
   console.log(`Bot conectado como ${client.user.tag} ✅`);
@@ -47,8 +49,42 @@ function sanitizeName(str) {
   return str.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-_]/g, "");
 }
  
+async function generateTranscript(channel) {
+  const messages = await channel.messages.fetch({ limit: 100 });
+  const sorted = Array.from(messages.values()).reverse();
+ 
+  const lines = sorted.map((msg) => {
+    const time = msg.createdAt.toLocaleString("es-CO");
+    const author = msg.author.tag;
+    const content = msg.content || "[sin texto — embed/adjunto]";
+    return `[${time}] ${author}: ${content}`;
+  });
+ 
+  const text = `Transcript de #${channel.name}\n${"=".repeat(40)}\n\n${lines.join("\n")}`;
+  return new AttachmentBuilder(Buffer.from(text, "utf-8"), {
+    name: `transcript-${channel.name}.txt`,
+  });
+}
+ 
 async function deleteTicketChannel(interaction, replyText) {
   await interaction.reply(replyText);
+ 
+  if (TRANSCRIPT_CHANNEL_ID) {
+    try {
+      const transcript = await generateTranscript(interaction.channel);
+      const logChannel = await interaction.guild.channels.fetch(TRANSCRIPT_CHANNEL_ID);
+      const ownerId = interaction.channel.topic ? interaction.channel.topic.split(":")[0] : null;
+      await logChannel.send({
+        content: `📄 Transcript de **#${interaction.channel.name}** — cerrado por ${interaction.user}${
+          ownerId ? ` | dueño: <@${ownerId}>` : ""
+        }`,
+        files: [transcript],
+      });
+    } catch (err) {
+      console.error("No se pudo generar/enviar el transcript:", err);
+    }
+  }
+ 
   setTimeout(() => {
     interaction.channel.delete().catch(() => {});
   }, 5000);
@@ -374,3 +410,4 @@ client.on("interactionCreate", async (interaction) => {
 });
  
 client.login(process.env.DISCORD_TOKEN);
+ 
