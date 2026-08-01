@@ -1,4 +1,4 @@
-require("dotenv").config();
+equire("dotenv").config();
 const {
   Client,
   GatewayIntentBits,
@@ -150,6 +150,7 @@ client.on("interactionCreate", async (interaction) => {
             PermissionFlagsBits.SendMessages,
             PermissionFlagsBits.ReadMessageHistory,
             PermissionFlagsBits.ManageChannels,
+            PermissionFlagsBits.ManageRoles,
           ],
         },
         {
@@ -259,6 +260,7 @@ client.on("interactionCreate", async (interaction) => {
               PermissionFlagsBits.SendMessages,
               PermissionFlagsBits.ReadMessageHistory,
               PermissionFlagsBits.ManageChannels,
+              PermissionFlagsBits.ManageRoles,
             ],
           },
         ],
