@@ -69,11 +69,20 @@ async function generateTranscript(channel) {
 async function deleteTicketChannel(interaction, replyText) {
   await interaction.reply(replyText);
  
-  if (TRANSCRIPT_CHANNEL_ID) {
+  const ownerId = interaction.channel.topic ? interaction.channel.topic.split(":")[0] : null;
+  let transcript = null;
+ 
+  if (TRANSCRIPT_CHANNEL_ID || ownerId) {
     try {
-      const transcript = await generateTranscript(interaction.channel);
+      transcript = await generateTranscript(interaction.channel);
+    } catch (err) {
+      console.error("No se pudo generar el transcript:", err);
+    }
+  }
+ 
+  if (transcript && TRANSCRIPT_CHANNEL_ID) {
+    try {
       const logChannel = await interaction.guild.channels.fetch(TRANSCRIPT_CHANNEL_ID);
-      const ownerId = interaction.channel.topic ? interaction.channel.topic.split(":")[0] : null;
       await logChannel.send({
         content: `📄 Transcript de **#${interaction.channel.name}** — cerrado por ${interaction.user}${
           ownerId ? ` | dueño: <@${ownerId}>` : ""
@@ -81,7 +90,19 @@ async function deleteTicketChannel(interaction, replyText) {
         files: [transcript],
       });
     } catch (err) {
-      console.error("No se pudo generar/enviar el transcript:", err);
+      console.error("No se pudo enviar el transcript al canal de logs:", err);
+    }
+  }
+ 
+  if (transcript && ownerId) {
+    try {
+      const ownerUser = await client.users.fetch(ownerId);
+      await ownerUser.send({
+        content: `📄 Aquí está el transcript de tu ticket **#${interaction.channel.name}** en OlimpoMC.`,
+        files: [transcript],
+      });
+    } catch (err) {
+      console.error("No se pudo enviar el transcript por DM al usuario (puede tener los DMs cerrados):", err);
     }
   }
  
