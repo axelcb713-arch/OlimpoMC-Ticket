@@ -17,21 +17,88 @@ const {
 const { ticketCategories, transferCategories, REPORTS_STAFF_ROLE_ID } = require("./config");
  
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+  ],
 });
  
 const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID;
 const TICKET_CATEGORY_ID = process.env.TICKET_CATEGORY_ID || null;
 const TRANSCRIPT_CHANNEL_ID = process.env.TRANSCRIPT_CHANNEL_ID || null;
+const MANAGEMENT_CHANNEL_ID = process.env.MANAGEMENT_CHANNEL_ID || null;
+const MANAGEMENT_ROLE_ID = process.env.MANAGEMENT_ROLE_ID || null;
+const STAFF_REMINDER_MINUTES = 25;
+const MANAGEMENT_ALERT_MINUTES = 30;
+ 
+// Guarda, por canal de ticket, los temporizadores activos de "sin respuesta"
+const ticketReminders = new Map();
+ 
+function clearTicketReminder(channelId) {
+  const info = ticketReminders.get(channelId);
+  if (info) {
+    clearTimeout(info.staffTimeout);
+    if (info.managementTimeout) clearTimeout(info.managementTimeout);
+  }
+  ticketReminders.delete(channelId);
+}
+ 
+function scheduleTicketReminder(channel, roleId) {
+  clearTicketReminder(channel.id);
+ 
+  const staffTimeout = setTimeout(async () => {
+    try {
+      const ch = await channel.guild.channels.fetch(channel.id).catch(() => null);
+      if (!ch) return;
+      await ch.send(
+        `⏰ <@&${roleId}> este ticket lleva más de ${STAFF_REMINDER_MINUTES} minutos sin respuesta del staff.`
+      );
+    } catch (err) {
+      console.error("No se pudo enviar el recordatorio del ticket:", err);
+    }
+  }, STAFF_REMINDER_MINUTES * 60 * 1000);
+ 
+  let managementTimeout = null;
+  if (MANAGEMENT_CHANNEL_ID) {
+    managementTimeout = setTimeout(async () => {
+      try {
+        const ch = await channel.guild.channels.fetch(channel.id).catch(() => null);
+        if (!ch) return;
+        const mgmtChannel = await channel.guild.channels.fetch(MANAGEMENT_CHANNEL_ID).catch(() => null);
+        if (!mgmtChannel) return;
+        await mgmtChannel.send(
+          `🚨 ${MANAGEMENT_ROLE_ID ? `<@&${MANAGEMENT_ROLE_ID}> ` : ""}el ticket ${ch} lleva más de ${MANAGEMENT_ALERT_MINUTES} minutos sin respuesta del staff.`
+        );
+      } catch (err) {
+        console.error("No se pudo enviar la alerta a management:", err);
+      } finally {
+        ticketReminders.delete(channel.id);
+      }
+    }, MANAGEMENT_ALERT_MINUTES * 60 * 1000);
+  }
+ 
+  ticketReminders.set(channel.id, { staffTimeout, managementTimeout, roleId });
+}
  
 client.once("ready", () => {
   console.log(`Bot conectado como ${client.user.tag} ✅`);
 });
  
+// Si un staff responde en el ticket, se cancelan ambos recordatorios pendientes
+client.on("messageCreate", (message) => {
+  if (!message.guild || message.author.bot) return;
+  if (!isTicketChannel(message.channel)) return;
+  if (!ticketReminders.has(message.channel.id)) return;
+ 
+  const isStaff = message.member?.permissionsIn(message.channel).has(PermissionFlagsBits.ManageChannels);
+  if (isStaff) clearTicketReminder(message.channel.id);
+});
+ 
 // --- Helpers ---
  
 function isTicketChannel(channel) {
-  return channel && channel.name && channel.name.startsWith("ticket-");
+  return Boolean(channel && channel.topic && channel.topic.includes(":"));
 }
  
 function isStaffInChannel(interaction) {
@@ -68,6 +135,7 @@ async function generateTranscript(channel) {
  
 async function deleteTicketChannel(interaction, replyText) {
   await interaction.reply(replyText);
+  clearTicketReminder(interaction.channel.id);
  
   const ownerId = interaction.channel.topic ? interaction.channel.topic.split(":")[0] : null;
   let transcript = null;
@@ -239,6 +307,7 @@ client.on("interactionCreate", async (interaction) => {
  
       await interaction.channel.permissionOverwrites.set(overwrites);
       await interaction.channel.setName(`ver-${sanitizeName(category.value.replace(/_/g, "-"))}`);
+      clearTicketReminder(interaction.channel.id);
  
       const embed = new EmbedBuilder()
         .setDescription(`🔀 Ticket transferido a **${category.label}** por ${interaction.user}.`)
@@ -369,6 +438,7 @@ client.on("interactionCreate", async (interaction) => {
       });
  
       await interaction.editReply({ content: `Tu ticket fue creado: ${channel}` });
+      scheduleTicketReminder(channel, primaryRoleId);
       return;
     }
  
@@ -401,6 +471,7 @@ client.on("interactionCreate", async (interaction) => {
       const row = new ActionRowBuilder().addComponents(claimButton, closeButton);
       await interaction.update({ embeds: [newEmbed], components: [row] });
       await interaction.channel.setName(`ticket-${sanitizeName(interaction.user.username)}`);
+      clearTicketReminder(interaction.channel.id);
  
       const ownerId = interaction.channel.topic;
       const ownerMention = ownerId ? `<@${ownerId.split(":")[0]}>` : "usuario";
