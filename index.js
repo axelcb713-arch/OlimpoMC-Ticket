@@ -255,6 +255,21 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
  
+    // ---------- Comando /tagrole ----------
+    if (interaction.isChatInputCommand() && interaction.commandName === "tagrole") {
+      if (!isTicketChannel(interaction.channel)) {
+        await interaction.reply({ content: "Este comando solo se puede usar dentro de un ticket.", ephemeral: true });
+        return;
+      }
+      if (!isStaffInChannel(interaction)) {
+        await interaction.reply({ content: "No tienes permiso para usar este comando.", ephemeral: true });
+        return;
+      }
+      const role = interaction.options.getRole("rol");
+      await interaction.reply({ content: `<@&${role.id}> los necesitan en este ticket.` });
+      return;
+    }
+ 
     // ---------- Comando /transfer ----------
     if (interaction.isChatInputCommand() && interaction.commandName === "transfer") {
       if (!isTicketChannel(interaction.channel)) {
