@@ -250,8 +250,54 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: "No tienes permiso para usar este comando.", ephemeral: true });
         return;
       }
+ 
+      await interaction.deferReply();
+ 
       const staffUser = interaction.options.getUser("staff");
-      await interaction.reply({ content: `${staffUser} te necesitan en este ticket.` });
+      const ownerId = interaction.channel.topic ? interaction.channel.topic.split(":")[0] : null;
+      const guild = interaction.guild;
+ 
+      const overwrites = [
+        { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+        {
+          id: client.user.id,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.ReadMessageHistory,
+            PermissionFlagsBits.ManageChannels,
+            PermissionFlagsBits.ManageRoles,
+          ],
+        },
+        {
+          id: staffUser.id,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.ReadMessageHistory,
+            PermissionFlagsBits.ManageChannels,
+          ],
+        },
+      ];
+      if (ownerId) {
+        overwrites.push({
+          id: ownerId,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.ReadMessageHistory,
+          ],
+        });
+      }
+ 
+      await interaction.channel.permissionOverwrites.set(overwrites);
+      clearTicketReminder(interaction.channel.id);
+ 
+      const embed = new EmbedBuilder()
+        .setDescription(`🙋 ${staffUser} te necesitan en este ticket. Ahora solo tú tienes acceso.`)
+        .setColor(0x2b6cb0);
+ 
+      await interaction.editReply({ content: `${staffUser}`, embeds: [embed] });
       return;
     }
  
@@ -265,8 +311,54 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: "No tienes permiso para usar este comando.", ephemeral: true });
         return;
       }
+ 
+      await interaction.deferReply();
+ 
       const role = interaction.options.getRole("rol");
-      await interaction.reply({ content: `<@&${role.id}> los necesitan en este ticket.` });
+      const ownerId = interaction.channel.topic ? interaction.channel.topic.split(":")[0] : null;
+      const guild = interaction.guild;
+ 
+      const overwrites = [
+        { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+        {
+          id: client.user.id,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.ReadMessageHistory,
+            PermissionFlagsBits.ManageChannels,
+            PermissionFlagsBits.ManageRoles,
+          ],
+        },
+        {
+          id: role.id,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.ReadMessageHistory,
+            PermissionFlagsBits.ManageChannels,
+          ],
+        },
+      ];
+      if (ownerId) {
+        overwrites.push({
+          id: ownerId,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.ReadMessageHistory,
+          ],
+        });
+      }
+ 
+      await interaction.channel.permissionOverwrites.set(overwrites);
+      clearTicketReminder(interaction.channel.id);
+ 
+      const embed = new EmbedBuilder()
+        .setDescription(`🙋 <@&${role.id}> los necesitan en este ticket. Ahora solo ese rol tiene acceso.`)
+        .setColor(0x2b6cb0);
+ 
+      await interaction.editReply({ content: `<@&${role.id}>`, embeds: [embed] });
       return;
     }
  
