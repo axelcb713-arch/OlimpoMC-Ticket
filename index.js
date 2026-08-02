@@ -14,7 +14,7 @@ const {
   ChannelType,
   AttachmentBuilder,
 } = require("discord.js");
-const { ticketCategories, transferCategories, REPORTS_STAFF_ROLE_ID } = require("./config");
+const { ticketCategories, transferCategories, REPORTS_STAFF_ROLE_ID, OWNER_ROLE_ID } = require("./config");
  
 const client = new Client({
   intents: [
@@ -466,9 +466,13 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
  
-      // "Reportes de staff" solo lo puede ver el rol específico, no el @Soporte general
+      // "Reportes de staff" y "Buycraft" son exclusivos: no los ve el @Soporte general
       const primaryRoleId =
-        category.value === "reportes_staff" ? REPORTS_STAFF_ROLE_ID : SUPPORT_ROLE_ID;
+        category.value === "reportes_staff"
+          ? REPORTS_STAFF_ROLE_ID
+          : category.value === "buycraft"
+          ? OWNER_ROLE_ID
+          : SUPPORT_ROLE_ID;
  
       const channel = await guild.channels.create({
         name: `ticket-${sanitizeName(interaction.user.username)}`,
