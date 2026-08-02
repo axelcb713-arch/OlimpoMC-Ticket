@@ -70,5 +70,8 @@ module.exports = {
  
   // Rol que exclusivamente puede ver y responder tickets de "Reportes de staff"
   REPORTS_STAFF_ROLE_ID: "1532936954394443937",
+ 
+  // Rol que exclusivamente puede ver y responder tickets de "Buycraft"
+  OWNER_ROLE_ID: "1532494236971434155",
 };
  
