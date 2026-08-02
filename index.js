@@ -281,6 +281,8 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
  
+      await interaction.deferReply();
+ 
       const categoryValue = interaction.options.getString("categoria");
       const category = transferCategories.find((c) => c.value === categoryValue);
       const guild = interaction.guild;
@@ -328,7 +330,7 @@ client.on("interactionCreate", async (interaction) => {
         .setDescription(`🔀 Ticket transferido a **${category.label}** por ${interaction.user}.`)
         .setColor(0xf6ad55);
  
-      await interaction.reply({ content: `<@&${category.roleId}>`, embeds: [embed] });
+      await interaction.editReply({ content: `<@&${category.roleId}>`, embeds: [embed] });
       return;
     }
  
