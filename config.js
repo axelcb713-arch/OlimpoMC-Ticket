@@ -53,7 +53,7 @@ module.exports = {
       ],
     },
   ],
- 
+
   // Categorías a las que se puede transferir un ticket ya abierto.
   // roleId = rol de staff que queda con acceso exclusivo tras la transferencia.
   transferCategories: [
@@ -67,11 +67,12 @@ module.exports = {
     { value: "un_register", label: "Un-Register", roleId: "1532494236971434155" },
     { value: "owner", label: "Owner", roleId: "1532494236971434155" },
   ],
- 
+
   // Rol que exclusivamente puede ver y responder tickets de "Reportes de staff"
   REPORTS_STAFF_ROLE_ID: "1532936954394443937",
- 
+
   // Rol que exclusivamente puede ver y responder tickets de "Buycraft"
   OWNER_ROLE_ID: "1532494236971434155",
 };
+
  
