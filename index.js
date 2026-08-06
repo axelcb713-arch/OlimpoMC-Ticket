@@ -15,7 +15,7 @@ const {
   AttachmentBuilder,
 } = require("discord.js");
 const { ticketCategories, transferCategories, REPORTS_STAFF_ROLE_ID, OWNER_ROLE_ID } = require("./config");
-
+ 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -23,7 +23,7 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
   ],
 });
-
+ 
 // --- Configuración por variables de entorno ---
 const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID;
 const TICKET_CATEGORY_ID = process.env.TICKET_CATEGORY_ID || null;
@@ -34,13 +34,18 @@ const STATS_LOG_CHANNEL_ID = process.env.STATS_LOG_CHANNEL_ID || null;
 const NOTES_CHANNEL_ID = process.env.NOTES_CHANNEL_ID || null;
 const HEAD_STAFF_ROLE_ID = process.env.HEAD_STAFF_ROLE_ID || null;
 const BLACKLIST_ROLE_ID = process.env.BLACKLIST_ROLE_ID || null;
-
+const FOUNDER_ROLE_ID = process.env.FOUNDER_ROLE_ID || null;
+const CO_OWNER_ROLE_ID = process.env.CO_OWNER_ROLE_ID || null;
+const BLACKLIST_MANAGER_ROLE_IDS = [HEAD_STAFF_ROLE_ID, FOUNDER_ROLE_ID, OWNER_ROLE_ID, CO_OWNER_ROLE_ID].filter(
+  Boolean
+);
+ 
 const STAFF_REMINDER_MINUTES = 25;
 const MANAGEMENT_ALERT_MINUTES = 30;
 const INACTIVITY_HOURS = 16;
 const INACTIVITY_CHECK_INTERVAL_MINUTES = 15;
 const TICKET_COOLDOWN_SECONDS = 60;
-
+ 
 // --- Estado en memoria ---
 const ticketReminders = new Map(); // channelId -> { staffTimeout, managementTimeout, roleId }
 const ticketLastOwnerActivity = new Map(); // channelId -> timestamp del último mensaje del dueño
@@ -49,7 +54,7 @@ const ticketClaims = new Map(); // channelId -> { id, tag }
 const ticketNumbers = new Map(); // channelId -> número de ticket
 const processingLocks = new Set(); // claves "accion:channelId" en proceso
 let ticketCounter = 0;
-
+ 
 function tryLock(key) {
   if (processingLocks.has(key)) return false;
   processingLocks.add(key);
@@ -58,13 +63,13 @@ function tryLock(key) {
 function unlock(key) {
   processingLocks.delete(key);
 }
-
+ 
 function padNum(n) {
   return String(n).padStart(4, "0");
 }
-
+ 
 // --- Recordatorios de "sin respuesta" (staff + escalado a management) ---
-
+ 
 function clearTicketReminder(channelId) {
   const info = ticketReminders.get(channelId);
   if (info) {
@@ -73,10 +78,10 @@ function clearTicketReminder(channelId) {
   }
   ticketReminders.delete(channelId);
 }
-
+ 
 function scheduleTicketReminder(channel, roleId) {
   clearTicketReminder(channel.id);
-
+ 
   const staffTimeout = setTimeout(async () => {
     try {
       const ch = await client.channels.fetch(channel.id).catch(() => null);
@@ -88,7 +93,7 @@ function scheduleTicketReminder(channel, roleId) {
       console.error("No se pudo enviar el recordatorio del ticket:", err);
     }
   }, STAFF_REMINDER_MINUTES * 60 * 1000);
-
+ 
   let managementTimeout = null;
   if (MANAGEMENT_CHANNEL_ID) {
     managementTimeout = setTimeout(async () => {
@@ -107,54 +112,54 @@ function scheduleTicketReminder(channel, roleId) {
       }
     }, MANAGEMENT_ALERT_MINUTES * 60 * 1000);
   }
-
+ 
   ticketReminders.set(channel.id, { staffTimeout, managementTimeout, roleId });
 }
-
+ 
 // --- Helpers de tickets ---
-
+ 
 function isTicketChannel(channel) {
   return Boolean(channel && channel.topic && channel.topic.includes(":"));
 }
-
+ 
 function isStaffInChannel(interaction) {
   return interaction.member
     .permissionsIn(interaction.channel)
     .has(PermissionFlagsBits.ManageChannels);
 }
-
+ 
 function isTicketOwner(interaction) {
   const topic = interaction.channel.topic || "";
   return topic.split(":")[0] === interaction.user.id;
 }
-
+ 
 function isBlacklisted(member) {
   return Boolean(BLACKLIST_ROLE_ID && member.roles.cache.has(BLACKLIST_ROLE_ID));
 }
-
+ 
 function sanitizeName(str) {
   return str.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-_]/g, "");
 }
-
+ 
 async function generateTranscript(channel) {
   const messages = await channel.messages.fetch({ limit: 100 });
   const sorted = Array.from(messages.values()).reverse();
-
+ 
   const lines = sorted.map((msg) => {
     const time = msg.createdAt.toLocaleString("es-CO");
     const author = msg.author.tag;
     const content = msg.content || "[sin texto — embed/adjunto]";
     return `[${time}] ${author}: ${content}`;
   });
-
+ 
   const text = `Transcript de #${channel.name}\n${"=".repeat(40)}\n\n${lines.join("\n")}`;
   return new AttachmentBuilder(Buffer.from(text, "utf-8"), {
     name: `transcript-${channel.name}.txt`,
   });
 }
-
+ 
 // --- Log de estadísticas (usa un canal de Discord como "base de datos" simple) ---
-
+ 
 async function logStat(type, fields) {
   if (!STATS_LOG_CHANNEL_ID) return;
   try {
@@ -166,7 +171,7 @@ async function logStat(type, fields) {
     console.error("No se pudo escribir en el log de stats:", err);
   }
 }
-
+ 
 function parseLogLine(content) {
   const parts = content.split("|");
   const type = parts[0];
@@ -178,7 +183,7 @@ function parseLogLine(content) {
   }
   return obj;
 }
-
+ 
 async function fetchAllLogEntries(channel, maxMessages = 2000) {
   const entries = [];
   let lastId;
@@ -194,7 +199,7 @@ async function fetchAllLogEntries(channel, maxMessages = 2000) {
   }
   return entries;
 }
-
+ 
 async function initTicketCounter() {
   if (!STATS_LOG_CHANNEL_ID) return;
   try {
@@ -207,9 +212,9 @@ async function initTicketCounter() {
     console.error("No se pudo inicializar el contador de tickets:", err);
   }
 }
-
+ 
 // --- Calificación al cerrar ---
-
+ 
 async function sendRatingRequest(user, channel, claim) {
   const row = new ActionRowBuilder().addComponents(
     [1, 2, 3, 4, 5].map((n) =>
@@ -224,16 +229,16 @@ async function sendRatingRequest(user, channel, claim) {
     components: [row],
   });
 }
-
+ 
 // --- Cierre de tickets (compartido entre /close, botón Delete y auto-cierre) ---
-
+ 
 async function closeTicketChannel(channel, { closedById, outcome }) {
   clearTicketReminder(channel.id);
   ticketLastOwnerActivity.delete(channel.id);
-
+ 
   const claim = ticketClaims.get(channel.id) || null;
   const ownerId = channel.topic ? channel.topic.split(":")[0] : null;
-
+ 
   let transcript = null;
   if (TRANSCRIPT_CHANNEL_ID || ownerId) {
     try {
@@ -242,7 +247,7 @@ async function closeTicketChannel(channel, { closedById, outcome }) {
       console.error("No se pudo generar el transcript:", err);
     }
   }
-
+ 
   if (transcript && TRANSCRIPT_CHANNEL_ID) {
     try {
       const logChannel = await client.channels.fetch(TRANSCRIPT_CHANNEL_ID).catch(() => null);
@@ -258,7 +263,7 @@ async function closeTicketChannel(channel, { closedById, outcome }) {
       console.error("No se pudo enviar el transcript al canal de logs:", err);
     }
   }
-
+ 
   if (transcript && ownerId) {
     try {
       const ownerUser = await client.users.fetch(ownerId);
@@ -270,14 +275,14 @@ async function closeTicketChannel(channel, { closedById, outcome }) {
       console.error("No se pudo enviar el transcript por DM al usuario:", err);
     }
   }
-
+ 
   await logStat("CLOSE", {
     channel: channel.id,
     closedBy: closedById || "auto",
     staff: claim ? claim.id : "none",
     outcome,
   });
-
+ 
   if (ownerId) {
     try {
       const ownerUser = await client.users.fetch(ownerId);
@@ -286,15 +291,15 @@ async function closeTicketChannel(channel, { closedById, outcome }) {
       console.error("No se pudo enviar la solicitud de calificación:", err);
     }
   }
-
+ 
   ticketClaims.delete(channel.id);
   ticketNumbers.delete(channel.id);
-
+ 
   setTimeout(() => {
     channel.delete().catch(() => {});
   }, 5000);
 }
-
+ 
 async function handleTicketClose(interaction, replyText) {
   const lockKey = `close:${interaction.channel.id}`;
   if (!tryLock(lockKey)) {
@@ -308,9 +313,9 @@ async function handleTicketClose(interaction, replyText) {
     unlock(lockKey);
   }
 }
-
+ 
 // --- Auto-cierre por inactividad del usuario ---
-
+ 
 setInterval(async () => {
   const now = Date.now();
   for (const [channelId, lastTime] of ticketLastOwnerActivity.entries()) {
@@ -330,30 +335,30 @@ setInterval(async () => {
     }
   }
 }, INACTIVITY_CHECK_INTERVAL_MINUTES * 60 * 1000);
-
+ 
 // --- Eventos ---
-
+ 
 client.once("ready", async () => {
   console.log(`Bot conectado como ${client.user.tag} ✅`);
   await initTicketCounter();
 });
-
+ 
 // Si el DUEÑO del ticket escribe, se resetea el reloj de inactividad.
 // Si un STAFF escribe, se cancelan los recordatorios de "sin respuesta".
 client.on("messageCreate", (message) => {
   if (!message.guild || message.author.bot) return;
   if (!isTicketChannel(message.channel)) return;
-
+ 
   const ownerId = message.channel.topic.split(":")[0];
   if (message.author.id === ownerId) {
     ticketLastOwnerActivity.set(message.channel.id, Date.now());
   }
-
+ 
   if (!ticketReminders.has(message.channel.id)) return;
   const isStaff = message.member?.permissionsIn(message.channel).has(PermissionFlagsBits.ManageChannels);
   if (isStaff) clearTicketReminder(message.channel.id);
 });
-
+ 
 client.on("interactionCreate", async (interaction) => {
   try {
     // ---------- Comando /panel ----------
@@ -364,7 +369,7 @@ client.on("interactionCreate", async (interaction) => {
           "Selecciona abajo la categoría que corresponda a tu ticket.\nSe creará un canal privado donde el staff te atenderá."
         )
         .setColor(0x2b6cb0);
-
+ 
       const menu = new StringSelectMenuBuilder()
         .setCustomId("ticket_select")
         .setPlaceholder("Elige una categoría...")
@@ -376,12 +381,12 @@ client.on("interactionCreate", async (interaction) => {
             emoji: cat.emoji,
           }))
         );
-
+ 
       const row = new ActionRowBuilder().addComponents(menu);
       await interaction.reply({ embeds: [embed], components: [row] });
       return;
     }
-
+ 
     // ---------- Comando /close ----------
     if (interaction.isChatInputCommand() && interaction.commandName === "close") {
       if (!isTicketChannel(interaction.channel)) {
@@ -395,7 +400,7 @@ client.on("interactionCreate", async (interaction) => {
       await handleTicketClose(interaction, "🔒 Cerrando ticket en 5 segundos...");
       return;
     }
-
+ 
     // ---------- Comando /rename ----------
     if (interaction.isChatInputCommand() && interaction.commandName === "rename") {
       if (!isTicketChannel(interaction.channel)) {
@@ -412,7 +417,7 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.reply({ content: `Ticket renombrado a **ticket-${safeName}**` });
       return;
     }
-
+ 
     // ---------- Comando /tagstaff ----------
     if (interaction.isChatInputCommand() && interaction.commandName === "tagstaff") {
       if (!isTicketChannel(interaction.channel)) {
@@ -423,20 +428,20 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: "No tienes permiso para usar este comando.", ephemeral: true });
         return;
       }
-
+ 
       const lockKey = `tagstaff:${interaction.channel.id}`;
       if (!tryLock(lockKey)) {
         await interaction.reply({ content: "Ya se está procesando una acción en este ticket, espera un momento.", ephemeral: true });
         return;
       }
-
+ 
       try {
         await interaction.deferReply();
-
+ 
         const staffUser = interaction.options.getUser("staff");
         const ownerId = interaction.channel.topic ? interaction.channel.topic.split(":")[0] : null;
         const guild = interaction.guild;
-
+ 
         const overwrites = [
           { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
           {
@@ -469,21 +474,21 @@ client.on("interactionCreate", async (interaction) => {
             ],
           });
         }
-
+ 
         await interaction.channel.permissionOverwrites.set(overwrites);
         clearTicketReminder(interaction.channel.id);
-
+ 
         const embed = new EmbedBuilder()
           .setDescription(`🙋 ${staffUser} te necesitan en este ticket. Ahora solo tú tienes acceso.`)
           .setColor(0x2b6cb0);
-
+ 
         await interaction.editReply({ content: `${staffUser}`, embeds: [embed] });
       } finally {
         unlock(lockKey);
       }
       return;
     }
-
+ 
     // ---------- Comando /tagrole ----------
     if (interaction.isChatInputCommand() && interaction.commandName === "tagrole") {
       if (!isTicketChannel(interaction.channel)) {
@@ -494,20 +499,20 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: "No tienes permiso para usar este comando.", ephemeral: true });
         return;
       }
-
+ 
       const lockKey = `tagrole:${interaction.channel.id}`;
       if (!tryLock(lockKey)) {
         await interaction.reply({ content: "Ya se está procesando una acción en este ticket, espera un momento.", ephemeral: true });
         return;
       }
-
+ 
       try {
         await interaction.deferReply();
-
+ 
         const role = interaction.options.getRole("rol");
         const ownerId = interaction.channel.topic ? interaction.channel.topic.split(":")[0] : null;
         const guild = interaction.guild;
-
+ 
         const overwrites = [
           { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
           {
@@ -540,21 +545,21 @@ client.on("interactionCreate", async (interaction) => {
             ],
           });
         }
-
+ 
         await interaction.channel.permissionOverwrites.set(overwrites);
         clearTicketReminder(interaction.channel.id);
-
+ 
         const embed = new EmbedBuilder()
           .setDescription(`🙋 <@&${role.id}> los necesitan en este ticket. Ahora solo ese rol tiene acceso.`)
           .setColor(0x2b6cb0);
-
+ 
         await interaction.editReply({ content: `<@&${role.id}>`, embeds: [embed] });
       } finally {
         unlock(lockKey);
       }
       return;
     }
-
+ 
     // ---------- Comando /transfer ----------
     if (interaction.isChatInputCommand() && interaction.commandName === "transfer") {
       if (!isTicketChannel(interaction.channel)) {
@@ -565,21 +570,21 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: "No tienes permiso para transferir este ticket.", ephemeral: true });
         return;
       }
-
+ 
       const lockKey = `transfer:${interaction.channel.id}`;
       if (!tryLock(lockKey)) {
         await interaction.reply({ content: "Ya se está procesando una transferencia en este ticket, espera un momento.", ephemeral: true });
         return;
       }
-
+ 
       try {
         await interaction.deferReply();
-
+ 
         const categoryValue = interaction.options.getString("categoria");
         const category = transferCategories.find((c) => c.value === categoryValue);
         const guild = interaction.guild;
         const ownerId = interaction.channel.topic ? interaction.channel.topic.split(":")[0] : null;
-
+ 
         const overwrites = [
           { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
           {
@@ -602,7 +607,7 @@ client.on("interactionCreate", async (interaction) => {
             ],
           },
         ];
-
+ 
         if (ownerId) {
           overwrites.push({
             id: ownerId,
@@ -613,33 +618,36 @@ client.on("interactionCreate", async (interaction) => {
             ],
           });
         }
-
+ 
         await interaction.channel.permissionOverwrites.set(overwrites);
         await interaction.channel.setName(`ver-${sanitizeName(category.value.replace(/_/g, "-"))}`);
         clearTicketReminder(interaction.channel.id);
-
+ 
         const embed = new EmbedBuilder()
           .setDescription(`🔀 Ticket transferido a **${category.label}** por ${interaction.user}.`)
           .setColor(0xf6ad55);
-
+ 
         await interaction.editReply({ content: `<@&${category.roleId}>`, embeds: [embed] });
       } finally {
         unlock(lockKey);
       }
       return;
     }
-
+ 
     // ---------- Comando /blacklist ----------
     if (interaction.isChatInputCommand() && interaction.commandName === "blacklist") {
-      if (!HEAD_STAFF_ROLE_ID || !interaction.member.roles.cache.has(HEAD_STAFF_ROLE_ID)) {
-        await interaction.reply({ content: "Solo Head Staff puede usar este comando.", ephemeral: true });
+      const canManageBlacklist = BLACKLIST_MANAGER_ROLE_IDS.some((id) =>
+        interaction.member.roles.cache.has(id)
+      );
+      if (!canManageBlacklist) {
+        await interaction.reply({ content: "No tienes permiso para usar este comando.", ephemeral: true });
         return;
       }
       if (!BLACKLIST_ROLE_ID) {
         await interaction.reply({ content: "Falta configurar BLACKLIST_ROLE_ID.", ephemeral: true });
         return;
       }
-
+ 
       const sub = interaction.options.getSubcommand();
       const target = interaction.options.getUser("usuario");
       const member = await interaction.guild.members.fetch(target.id).catch(() => null);
@@ -647,7 +655,7 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: "No encontré a ese usuario en el servidor.", ephemeral: true });
         return;
       }
-
+ 
       if (sub === "add") {
         await member.roles.add(BLACKLIST_ROLE_ID);
         await interaction.reply(`🚫 ${target} fue bloqueado para abrir tickets.`);
@@ -657,7 +665,7 @@ client.on("interactionCreate", async (interaction) => {
       }
       return;
     }
-
+ 
     // ---------- Comando /note ----------
     if (interaction.isChatInputCommand() && interaction.commandName === "note") {
       if (!isTicketChannel(interaction.channel)) {
@@ -672,39 +680,39 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: "Falta configurar NOTES_CHANNEL_ID.", ephemeral: true });
         return;
       }
-
+ 
       const text = interaction.options.getString("texto");
       const notesChannel = await client.channels.fetch(NOTES_CHANNEL_ID).catch(() => null);
       if (!notesChannel) {
         await interaction.reply({ content: "No pude encontrar el canal de notas.", ephemeral: true });
         return;
       }
-
+ 
       const embed = new EmbedBuilder()
         .setDescription(`📝 **Nota en** ${interaction.channel}\n${text}`)
         .setFooter({ text: `Por ${interaction.user.tag}` })
         .setColor(0x718096)
         .setTimestamp();
-
+ 
       await notesChannel.send({ embeds: [embed] });
       await interaction.reply({ content: "Nota guardada — solo la ve el staff.", ephemeral: true });
       return;
     }
-
+ 
     // ---------- Comando /ticketinfo ----------
     if (interaction.isChatInputCommand() && interaction.commandName === "ticketinfo") {
       if (!isTicketChannel(interaction.channel)) {
         await interaction.reply({ content: "Este comando solo se puede usar dentro de un ticket.", ephemeral: true });
         return;
       }
-
+ 
       const [ownerId, categoryValue] = interaction.channel.topic.split(":");
       const category =
         ticketCategories.find((c) => c.value === categoryValue) ||
         transferCategories.find((c) => c.value === categoryValue);
       const claim = ticketClaims.get(interaction.channel.id);
       const number = ticketNumbers.get(interaction.channel.id);
-
+ 
       const embed = new EmbedBuilder()
         .setTitle(`Info del ticket ${number ? `#${padNum(number)}` : ""}`)
         .addFields(
@@ -718,29 +726,29 @@ client.on("interactionCreate", async (interaction) => {
           }
         )
         .setColor(0x2b6cb0);
-
+ 
       await interaction.reply({ embeds: [embed], ephemeral: true });
       return;
     }
-
+ 
     // ---------- Comando /stats ----------
     if (interaction.isChatInputCommand() && interaction.commandName === "stats") {
       if (!STATS_LOG_CHANNEL_ID) {
         await interaction.reply({ content: "Falta configurar STATS_LOG_CHANNEL_ID.", ephemeral: true });
         return;
       }
-
+ 
       await interaction.deferReply();
-
+ 
       const logChannel = await client.channels.fetch(STATS_LOG_CHANNEL_ID).catch(() => null);
       if (!logChannel) {
         await interaction.editReply("No pude leer el canal de estadísticas.");
         return;
       }
-
+ 
       const filterUser = interaction.options.getUser("staff");
       const entries = await fetchAllLogEntries(logChannel);
-
+ 
       const tally = new Map();
       function getEntry(id) {
         if (!tally.has(id)) tally.set(id, { claims: 0, closes: 0, abandoned: 0, ratingsSum: 0, ratingsCount: 0 });
@@ -758,7 +766,7 @@ client.on("interactionCreate", async (interaction) => {
           t.ratingsCount += 1;
         }
       }
-
+ 
       if (filterUser) {
         const t = tally.get(filterUser.id) || { claims: 0, closes: 0, abandoned: 0, ratingsSum: 0, ratingsCount: 0 };
         const avg = t.ratingsCount ? (t.ratingsSum / t.ratingsCount).toFixed(1) : "sin calificar";
@@ -778,7 +786,7 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.editReply({ embeds: [embed] });
         return;
       }
-
+ 
       const sorted = Array.from(tally.entries())
         .sort((a, b) => b[1].closes - a[1].closes)
         .slice(0, 15);
@@ -793,14 +801,14 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.editReply({ embeds: [embed] });
       return;
     }
-
+ 
     // ---------- Selección de categoría -> abre el formulario correspondiente ----------
     if (interaction.isStringSelectMenu() && interaction.customId === "ticket_select") {
       if (isBlacklisted(interaction.member)) {
         await interaction.reply({ content: "Estás bloqueado para abrir tickets.", ephemeral: true });
         return;
       }
-
+ 
       const cooldownUntil = ticketCooldowns.get(interaction.user.id);
       if (cooldownUntil && Date.now() < cooldownUntil) {
         const secondsLeft = Math.ceil((cooldownUntil - Date.now()) / 1000);
@@ -810,14 +818,14 @@ client.on("interactionCreate", async (interaction) => {
         });
         return;
       }
-
+ 
       const categoryValue = interaction.values[0];
       const category = ticketCategories.find((c) => c.value === categoryValue);
-
+ 
       const modal = new ModalBuilder()
         .setCustomId(`ticket_modal_${categoryValue}`)
         .setTitle(category.label.slice(0, 45));
-
+ 
       const rows = category.fields.map((field) => {
         const input = new TextInputBuilder()
           .setCustomId(field.id)
@@ -827,20 +835,20 @@ client.on("interactionCreate", async (interaction) => {
           .setMaxLength(field.maxLength || 500);
         return new ActionRowBuilder().addComponents(input);
       });
-
+ 
       modal.addComponents(...rows);
       await interaction.showModal(modal);
       return;
     }
-
+ 
     // ---------- Envío del formulario -> crea el canal del ticket ----------
     if (interaction.isModalSubmit() && interaction.customId.startsWith("ticket_modal_")) {
       await interaction.deferReply({ ephemeral: true });
-
+ 
       const categoryValue = interaction.customId.replace("ticket_modal_", "");
       const category = ticketCategories.find((c) => c.value === categoryValue);
       const guild = interaction.guild;
-
+ 
       const existing = guild.channels.cache.find(
         (ch) => ch.topic === `${interaction.user.id}:${category.value}`
       );
@@ -848,7 +856,7 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.editReply({ content: `Ya tienes un ticket abierto de esa categoría: ${existing}` });
         return;
       }
-
+ 
       // "Reportes de staff" y "Buycraft" son exclusivos: no los ve el @Soporte general
       const primaryRoleId =
         category.value === "reportes_staff"
@@ -856,7 +864,7 @@ client.on("interactionCreate", async (interaction) => {
           : category.value === "buycraft"
           ? OWNER_ROLE_ID
           : SUPPORT_ROLE_ID;
-
+ 
       const channel = await guild.channels.create({
         name: `ticket-${sanitizeName(interaction.user.username)}`,
         type: ChannelType.GuildText,
@@ -893,13 +901,13 @@ client.on("interactionCreate", async (interaction) => {
           },
         ],
       });
-
+ 
       ticketCounter += 1;
       const ticketNumber = ticketCounter;
       ticketNumbers.set(channel.id, ticketNumber);
       ticketLastOwnerActivity.set(channel.id, Date.now());
       ticketCooldowns.set(interaction.user.id, Date.now() + TICKET_COOLDOWN_SECONDS * 1000);
-
+ 
       const embed = new EmbedBuilder()
         .setTitle(`${interaction.user.username} Support`)
         .setDescription(
@@ -918,27 +926,27 @@ client.on("interactionCreate", async (interaction) => {
           iconURL: interaction.user.displayAvatarURL(),
         })
         .setTimestamp();
-
+ 
       const claimButton = new ButtonBuilder()
         .setCustomId("ticket_claim")
         .setLabel("Claim")
         .setStyle(ButtonStyle.Success)
         .setEmoji("🎫");
-
+ 
       const closeButton = new ButtonBuilder()
         .setCustomId("ticket_close")
         .setLabel("Delete")
         .setStyle(ButtonStyle.Danger)
         .setEmoji("🗑️");
-
+ 
       const row = new ActionRowBuilder().addComponents(claimButton, closeButton);
-
+ 
       await channel.send({
         content: `<@&${primaryRoleId}> | ${interaction.user}`,
         embeds: [embed],
         components: [row],
       });
-
+ 
       await interaction.editReply({ content: `Tu ticket fue creado: ${channel}` });
       scheduleTicketReminder(channel, primaryRoleId);
       await logStat("CREATE", {
@@ -949,20 +957,20 @@ client.on("interactionCreate", async (interaction) => {
       });
       return;
     }
-
+ 
     // ---------- Botón Claim ----------
     if (interaction.isButton() && interaction.customId === "ticket_claim") {
       if (!isStaffInChannel(interaction)) {
         await interaction.reply({ content: "Solo el staff puede reclamar tickets.", ephemeral: true });
         return;
       }
-
+ 
       const lockKey = `claim:${interaction.channel.id}`;
       if (!tryLock(lockKey)) {
         await interaction.reply({ content: "Ya se está procesando el reclamo de este ticket.", ephemeral: true });
         return;
       }
-
+ 
       try {
         const number = ticketNumbers.get(interaction.channel.id);
         const oldEmbed = interaction.message.embeds[0];
@@ -970,28 +978,28 @@ client.on("interactionCreate", async (interaction) => {
           text: `${number ? `#${padNum(number)} • ` : ""}Reclamado por ${interaction.user.username}`,
           iconURL: interaction.user.displayAvatarURL(),
         });
-
+ 
         const claimButton = new ButtonBuilder()
           .setCustomId("ticket_claim")
           .setLabel(`Reclamado por ${interaction.user.username}`)
           .setStyle(ButtonStyle.Secondary)
           .setEmoji("🎫")
           .setDisabled(true);
-
+ 
         const closeButton = new ButtonBuilder()
           .setCustomId("ticket_close")
           .setLabel("Delete")
           .setStyle(ButtonStyle.Danger)
           .setEmoji("🗑️");
-
+ 
         const row = new ActionRowBuilder().addComponents(claimButton, closeButton);
         await interaction.update({ embeds: [newEmbed], components: [row] });
         await interaction.channel.setName(`ticket-${sanitizeName(interaction.user.username)}`);
         clearTicketReminder(interaction.channel.id);
-
+ 
         ticketClaims.set(interaction.channel.id, { id: interaction.user.id, tag: interaction.user.tag });
         await logStat("CLAIM", { channel: interaction.channel.id, staff: interaction.user.id });
-
+ 
         const ownerId = interaction.channel.topic;
         const ownerMention = ownerId ? `<@${ownerId.split(":")[0]}>` : "usuario";
         await interaction.channel.send(
@@ -1002,7 +1010,7 @@ client.on("interactionCreate", async (interaction) => {
       }
       return;
     }
-
+ 
     // ---------- Botón Eliminar ----------
     if (interaction.isButton() && interaction.customId === "ticket_close") {
       if (!isStaffInChannel(interaction) && !isTicketOwner(interaction)) {
@@ -1012,7 +1020,7 @@ client.on("interactionCreate", async (interaction) => {
       await handleTicketClose(interaction, "🔒 Eliminando ticket en 5 segundos...");
       return;
     }
-
+ 
     // ---------- Botones de calificación (llegan por DM) ----------
     if (interaction.isButton() && interaction.customId.startsWith("rate_")) {
       const [, stars, channelId, staffId] = interaction.customId.split("_");
@@ -1033,5 +1041,6 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 });
-
+ 
 client.login(process.env.DISCORD_TOKEN);
+ 
