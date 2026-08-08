@@ -418,10 +418,19 @@ setInterval(async () => {
  
 // --- Eventos ---
  
-client.once("ready", async () => {
+let readyHandled = false;
+async function handleReady() {
+  if (readyHandled) return;
+  readyHandled = true;
   console.log(`Bot conectado como ${client.user.tag} ✅`);
   await initTicketCounter();
-});
+}
+client.once("ready", handleReady);
+client.once("clientReady", handleReady);
+ 
+client.on("error", (err) => console.error("Error del cliente de Discord:", err));
+process.on("unhandledRejection", (err) => console.error("Promesa rechazada sin capturar:", err));
+process.on("uncaughtException", (err) => console.error("Excepción sin capturar:", err));
  
 // Si el DUEÑO del ticket escribe, se resetea el reloj de inactividad.
 // Si un STAFF escribe, se cancelan los recordatorios de "sin respuesta".
@@ -1136,3 +1145,4 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
  
+client.login(process.env.DISCORD_TOKEN);
