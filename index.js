@@ -44,7 +44,7 @@ const BLACKLIST_MANAGER_ROLE_IDS = [HEAD_STAFF_ROLE_ID, FOUNDER_ROLE_ID, OWNER_R
  
 const STAFF_REMINDER_MINUTES = 25;
 const MANAGEMENT_ALERT_MINUTES = 30;
-const INACTIVITY_HOURS = 10;
+const INACTIVITY_HOURS = 16;
 const INACTIVITY_CHECK_INTERVAL_MINUTES = 15;
 const TICKET_COOLDOWN_SECONDS = 60;
  
@@ -584,7 +584,6 @@ client.on("interactionCreate", async (interaction) => {
  
       modal.addComponents(...rows);
       await interaction.showModal(modal);
-      interaction.message?.delete().catch(() => {});
       return;
     }
  
@@ -1011,6 +1010,17 @@ client.on("interactionCreate", async (interaction) => {
       const category = ticketCategories.find((c) => c.value === categoryValue);
       const channel = interaction.channel;
       const ownerId = channel.topic ? channel.topic.split(":")[0] : interaction.user.id;
+ 
+      // Borra el mensaje de "elige tu categoría" ahora que ya se completó el formulario
+      const categoryMessages = await channel.messages
+        .fetch({ limit: 10 })
+        .catch(() => null);
+      if (categoryMessages) {
+        const pickerMsg = categoryMessages.find(
+          (m) => m.author.id === client.user.id && m.components.length > 0
+        );
+        if (pickerMsg) pickerMsg.delete().catch(() => {});
+      }
  
       // "Reportes de staff" y "Buycraft" son exclusivos: no los ve el @Soporte general
       const primaryRoleId =
