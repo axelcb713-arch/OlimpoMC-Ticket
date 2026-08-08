@@ -28,6 +28,7 @@ const client = new Client({
 // --- Configuración por variables de entorno ---
 const SUPPORT_ROLE_ID = process.env.SUPPORT_ROLE_ID;
 const TICKET_CATEGORY_ID = process.env.TICKET_CATEGORY_ID || null;
+const PANEL_IMAGE_URL = process.env.PANEL_IMAGE_URL || null;
 const TRANSCRIPT_CHANNEL_ID = process.env.TRANSCRIPT_CHANNEL_ID || null;
 const MANAGEMENT_CHANNEL_ID = process.env.MANAGEMENT_CHANNEL_ID || null;
 const MANAGEMENT_ROLE_ID = process.env.MANAGEMENT_ROLE_ID || null;
@@ -443,6 +444,25 @@ client.on("interactionCreate", async (interaction) => {
     // ---------- Comando /panel ----------
     if (interaction.isChatInputCommand() && interaction.commandName === "panel") {
       const embed = new EmbedBuilder()
+        .setTitle("Soporte — OlimpoMC")
+        .setDescription("Pide ahora mismo soporte.\nDale clic al botón de abajo para crear tu ticket.")
+        .setColor(0x2b6cb0);
+      if (PANEL_IMAGE_URL) embed.setImage(PANEL_IMAGE_URL);
+ 
+      const openButton = new ButtonBuilder()
+        .setCustomId("open_ticket_menu")
+        .setLabel("Crear Ticket")
+        .setStyle(ButtonStyle.Success)
+        .setEmoji("🎫");
+ 
+      const row = new ActionRowBuilder().addComponents(openButton);
+      await interaction.reply({ embeds: [embed], components: [row] });
+      return;
+    }
+ 
+    // ---------- Botón "Crear Ticket" -> muestra el menú de categorías (solo para quien le dio clic) ----------
+    if (interaction.isButton() && interaction.customId === "open_ticket_menu") {
+      const embed = new EmbedBuilder()
         .setTitle("🎫 Sistema de Tickets — OlimpoMC")
         .setDescription(
           "Selecciona abajo la categoría que corresponda a tu ticket.\nSe creará un canal privado donde el staff te atenderá."
@@ -462,7 +482,7 @@ client.on("interactionCreate", async (interaction) => {
         );
  
       const row = new ActionRowBuilder().addComponents(menu);
-      await interaction.reply({ embeds: [embed], components: [row] });
+      await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
       return;
     }
  
