@@ -44,7 +44,7 @@ const BLACKLIST_MANAGER_ROLE_IDS = [HEAD_STAFF_ROLE_ID, FOUNDER_ROLE_ID, OWNER_R
  
 const STAFF_REMINDER_MINUTES = 25;
 const MANAGEMENT_ALERT_MINUTES = 30;
-const INACTIVITY_HOURS = 6;
+const INACTIVITY_HOURS = 10;
 const INACTIVITY_CHECK_INTERVAL_MINUTES = 15;
 const TICKET_COOLDOWN_SECONDS = 60;
  
@@ -464,25 +464,59 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.isButton() && interaction.customId === "open_ticket_menu") {
       const embed = new EmbedBuilder()
         .setTitle("🎫 Sistema de Tickets — OlimpoMC")
-        .setDescription(
-          "Selecciona abajo la categoría que corresponda a tu ticket.\nSe creará un canal privado donde el staff te atenderá."
-        )
+        .setDescription("Selecciona abajo la categoría que corresponda a tu ticket.")
         .setColor(0x2b6cb0);
  
-      const menu = new StringSelectMenuBuilder()
-        .setCustomId("ticket_select")
-        .setPlaceholder("Elige una categoría...")
-        .addOptions(
-          ticketCategories.map((cat) => ({
-            label: cat.label,
-            value: cat.value,
-            description: cat.description,
-            emoji: cat.emoji,
-          }))
-        );
+      const buttons = ticketCategories.map((cat) =>
+        new ButtonBuilder()
+          .setCustomId(`ticket_open_${cat.value}`)
+          .setLabel(cat.label)
+          .setEmoji(cat.emoji)
+          .setStyle(ButtonStyle.Danger)
+      );
  
-      const row = new ActionRowBuilder().addComponents(menu);
+      const row = new ActionRowBuilder().addComponents(buttons);
       await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+      return;
+    }
+ 
+    // ---------- Botón de categoría -> abre el formulario correspondiente ----------
+    if (interaction.isButton() && interaction.customId.startsWith("ticket_open_")) {
+      if (isBlacklisted(interaction.member)) {
+        await interaction.reply({ content: "Estás bloqueado para abrir tickets.", ephemeral: true });
+        return;
+      }
+ 
+      const cooldownUntil = ticketCooldowns.get(interaction.user.id);
+      if (cooldownUntil && Date.now() < cooldownUntil) {
+        const secondsLeft = Math.ceil((cooldownUntil - Date.now()) / 1000);
+        await interaction.reply({
+          content: `Espera ${secondsLeft}s antes de abrir otro ticket.`,
+          ephemeral: true,
+        });
+        return;
+      }
+ 
+      const categoryValue = interaction.customId.replace("ticket_open_", "");
+      const category = ticketCategories.find((c) => c.value === categoryValue);
+      if (!category) return;
+ 
+      const modal = new ModalBuilder()
+        .setCustomId(`ticket_modal_${categoryValue}`)
+        .setTitle(category.label.slice(0, 45));
+ 
+      const rows = category.fields.map((field) => {
+        const input = new TextInputBuilder()
+          .setCustomId(field.id)
+          .setLabel(field.label.slice(0, 45))
+          .setStyle(field.style === "Paragraph" ? TextInputStyle.Paragraph : TextInputStyle.Short)
+          .setRequired(field.required !== false)
+          .setMaxLength(field.maxLength || 500);
+        return new ActionRowBuilder().addComponents(input);
+      });
+ 
+      modal.addComponents(...rows);
+      await interaction.showModal(modal);
       return;
     }
  
@@ -901,45 +935,6 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
  
-    // ---------- Selección de categoría -> abre el formulario correspondiente ----------
-    if (interaction.isStringSelectMenu() && interaction.customId === "ticket_select") {
-      if (isBlacklisted(interaction.member)) {
-        await interaction.reply({ content: "Estás bloqueado para abrir tickets.", ephemeral: true });
-        return;
-      }
- 
-      const cooldownUntil = ticketCooldowns.get(interaction.user.id);
-      if (cooldownUntil && Date.now() < cooldownUntil) {
-        const secondsLeft = Math.ceil((cooldownUntil - Date.now()) / 1000);
-        await interaction.reply({
-          content: `Espera ${secondsLeft}s antes de abrir otro ticket.`,
-          ephemeral: true,
-        });
-        return;
-      }
- 
-      const categoryValue = interaction.values[0];
-      const category = ticketCategories.find((c) => c.value === categoryValue);
- 
-      const modal = new ModalBuilder()
-        .setCustomId(`ticket_modal_${categoryValue}`)
-        .setTitle(category.label.slice(0, 45));
- 
-      const rows = category.fields.map((field) => {
-        const input = new TextInputBuilder()
-          .setCustomId(field.id)
-          .setLabel(field.label.slice(0, 45))
-          .setStyle(field.style === "Paragraph" ? TextInputStyle.Paragraph : TextInputStyle.Short)
-          .setRequired(field.required !== false)
-          .setMaxLength(field.maxLength || 500);
-        return new ActionRowBuilder().addComponents(input);
-      });
- 
-      modal.addComponents(...rows);
-      await interaction.showModal(modal);
-      return;
-    }
- 
     // ---------- Envío del formulario -> crea el canal del ticket ----------
     if (interaction.isModalSubmit() && interaction.customId.startsWith("ticket_modal_")) {
       await interaction.deferReply({ ephemeral: true });
@@ -1140,6 +1135,4 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 });
- 
-client.login(process.env.DISCORD_TOKEN);
  
