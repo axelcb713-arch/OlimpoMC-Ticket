@@ -21,6 +21,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
   ],
 });
  
@@ -42,7 +43,7 @@ const BLACKLIST_MANAGER_ROLE_IDS = [HEAD_STAFF_ROLE_ID, FOUNDER_ROLE_ID, OWNER_R
  
 const STAFF_REMINDER_MINUTES = 25;
 const MANAGEMENT_ALERT_MINUTES = 30;
-const INACTIVITY_HOURS = 5;
+const INACTIVITY_HOURS = 6;
 const INACTIVITY_CHECK_INTERVAL_MINUTES = 15;
 const TICKET_COOLDOWN_SECONDS = 60;
  
