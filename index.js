@@ -210,12 +210,22 @@ async function generateTranscript(channel) {
  
 // --- Log de estadísticas (usa un canal de Discord como "base de datos" simple) ---
  
+const STAT_USER_FIELDS = ["owner", "staff", "closedBy"];
+const STAT_CHANNEL_FIELDS = ["channel"];
+ 
 async function logStat(type, fields) {
   if (!STATS_LOG_CHANNEL_ID) return;
   try {
     const channel = await client.channels.fetch(STATS_LOG_CHANNEL_ID).catch(() => null);
     if (!channel) return;
-    const parts = [type, ...Object.entries(fields).map(([k, v]) => `${k}=${v}`)];
+    const parts = [
+      type,
+      ...Object.entries(fields).map(([k, v]) => {
+        if (STAT_USER_FIELDS.includes(k) && v && v !== "none" && v !== "auto") return `${k}=<@${v}>`;
+        if (STAT_CHANNEL_FIELDS.includes(k) && v) return `${k}=<#${v}>`;
+        return `${k}=${v}`;
+      }),
+    ];
     await channel.send(parts.join("|"));
   } catch (err) {
     console.error("No se pudo escribir en el log de stats:", err);
@@ -228,7 +238,11 @@ function parseLogLine(content) {
   if (!["CREATE", "CLAIM", "CLOSE", "RATING"].includes(type)) return null;
   const obj = { type };
   for (let i = 1; i < parts.length; i++) {
-    const [k, v] = parts[i].split("=");
+    const eqIdx = parts[i].indexOf("=");
+    if (eqIdx === -1) continue;
+    const k = parts[i].slice(0, eqIdx);
+    const rawValue = parts[i].slice(eqIdx + 1);
+    const v = rawValue.replace(/^<[@#]!?/, "").replace(/>$/, "");
     if (k) obj[k] = v;
   }
   return obj;
