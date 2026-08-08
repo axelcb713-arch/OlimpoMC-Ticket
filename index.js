@@ -526,6 +526,7 @@ client.on("interactionCreate", async (interaction) => {
  
       modal.addComponents(...rows);
       await interaction.showModal(modal);
+      interaction.message?.delete().catch(() => {});
       return;
     }
  
@@ -968,8 +969,11 @@ client.on("interactionCreate", async (interaction) => {
           ? OWNER_ROLE_ID
           : SUPPORT_ROLE_ID;
  
+      ticketCounter += 1;
+      const ticketNumber = ticketCounter;
+ 
       const channel = await guild.channels.create({
-        name: `ticket-${sanitizeName(interaction.user.username)}`,
+        name: `ticket-pendiente-${padNum(ticketNumber)}`,
         type: ChannelType.GuildText,
         parent: TICKET_CATEGORY_ID || undefined,
         topic: `${interaction.user.id}:${category.value}`, // guarda dueño y categoría del ticket
@@ -1005,8 +1009,6 @@ client.on("interactionCreate", async (interaction) => {
         ],
       });
  
-      ticketCounter += 1;
-      const ticketNumber = ticketCounter;
       ticketNumbers.set(channel.id, ticketNumber);
       ticketLastOwnerActivity.set(channel.id, Date.now());
       ticketCooldowns.set(interaction.user.id, Date.now() + TICKET_COOLDOWN_SECONDS * 1000);
@@ -1146,3 +1148,4 @@ client.on("interactionCreate", async (interaction) => {
 });
  
 client.login(process.env.DISCORD_TOKEN);
+ 
