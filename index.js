@@ -471,6 +471,69 @@ client.on("interactionCreate", async (interaction) => {
  
     // ---------- Botón "Crear Ticket" -> muestra el menú de categorías (solo para quien le dio clic) ----------
     if (interaction.isButton() && interaction.customId === "open_ticket_menu") {
+      if (isBlacklisted(interaction.member)) {
+        await interaction.reply({ content: "Estás bloqueado para abrir tickets.", ephemeral: true });
+        return;
+      }
+ 
+      const cooldownUntil = ticketCooldowns.get(interaction.user.id);
+      if (cooldownUntil && Date.now() < cooldownUntil) {
+        const secondsLeft = Math.ceil((cooldownUntil - Date.now()) / 1000);
+        await interaction.reply({
+          content: `Espera ${secondsLeft}s antes de abrir otro ticket.`,
+          ephemeral: true,
+        });
+        return;
+      }
+ 
+      const guild = interaction.guild;
+      const existingPending = guild.channels.cache.find(
+        (ch) => ch.topic && ch.topic.startsWith(`${interaction.user.id}:`)
+      );
+      if (existingPending) {
+        await interaction.reply({
+          content: `Ya tienes un ticket abierto: ${existingPending}`,
+          ephemeral: true,
+        });
+        return;
+      }
+ 
+      await interaction.deferReply({ ephemeral: true });
+ 
+      ticketCounter += 1;
+      const ticketNumber = ticketCounter;
+ 
+      const channel = await guild.channels.create({
+        name: `ticket-pendiente-${padNum(ticketNumber)}`,
+        type: ChannelType.GuildText,
+        parent: TICKET_CATEGORY_ID || undefined,
+        topic: `${interaction.user.id}:pending`,
+        permissionOverwrites: [
+          { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+          {
+            id: interaction.user.id,
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.SendMessages,
+              PermissionFlagsBits.ReadMessageHistory,
+            ],
+          },
+          {
+            id: client.user.id,
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.SendMessages,
+              PermissionFlagsBits.ReadMessageHistory,
+              PermissionFlagsBits.ManageChannels,
+              PermissionFlagsBits.ManageRoles,
+            ],
+          },
+        ],
+      });
+ 
+      ticketNumbers.set(channel.id, ticketNumber);
+      ticketCooldowns.set(interaction.user.id, Date.now() + TICKET_COOLDOWN_SECONDS * 1000);
+ 
       const embed = new EmbedBuilder()
         .setTitle("🎫 Sistema de Tickets — OlimpoMC")
         .setDescription("Selecciona abajo la categoría que corresponda a tu ticket.")
@@ -485,22 +548,17 @@ client.on("interactionCreate", async (interaction) => {
       );
  
       const row = new ActionRowBuilder().addComponents(buttons);
-      await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+      await channel.send({ content: `${interaction.user}`, embeds: [embed], components: [row] });
+      await interaction.editReply({ content: `Tu ticket fue creado: ${channel}` });
       return;
     }
  
-    // ---------- Botón de categoría -> abre el formulario correspondiente ----------
+    // ---------- Botón de categoría (dentro del ticket) -> abre el formulario correspondiente ----------
     if (interaction.isButton() && interaction.customId.startsWith("ticket_open_")) {
-      if (isBlacklisted(interaction.member)) {
-        await interaction.reply({ content: "Estás bloqueado para abrir tickets.", ephemeral: true });
-        return;
-      }
- 
-      const cooldownUntil = ticketCooldowns.get(interaction.user.id);
-      if (cooldownUntil && Date.now() < cooldownUntil) {
-        const secondsLeft = Math.ceil((cooldownUntil - Date.now()) / 1000);
+      const ownerId = interaction.channel.topic ? interaction.channel.topic.split(":")[0] : null;
+      if (interaction.user.id !== ownerId) {
         await interaction.reply({
-          content: `Espera ${secondsLeft}s antes de abrir otro ticket.`,
+          content: "Solo quien abrió este ticket puede elegir la categoría.",
           ephemeral: true,
         });
         return;
@@ -951,15 +1009,8 @@ client.on("interactionCreate", async (interaction) => {
  
       const categoryValue = interaction.customId.replace("ticket_modal_", "");
       const category = ticketCategories.find((c) => c.value === categoryValue);
-      const guild = interaction.guild;
- 
-      const existing = guild.channels.cache.find(
-        (ch) => ch.topic === `${interaction.user.id}:${category.value}`
-      );
-      if (existing) {
-        await interaction.editReply({ content: `Ya tienes un ticket abierto de esa categoría: ${existing}` });
-        return;
-      }
+      const channel = interaction.channel;
+      const ownerId = channel.topic ? channel.topic.split(":")[0] : interaction.user.id;
  
       // "Reportes de staff" y "Buycraft" son exclusivos: no los ve el @Soporte general
       const primaryRoleId =
@@ -969,49 +1020,18 @@ client.on("interactionCreate", async (interaction) => {
           ? OWNER_ROLE_ID
           : SUPPORT_ROLE_ID;
  
-      ticketCounter += 1;
-      const ticketNumber = ticketCounter;
+      await channel.setTopic(`${ownerId}:${category.value}`).catch(() => {});
+      await channel.permissionOverwrites
+        .edit(primaryRoleId, {
+          ViewChannel: true,
+          SendMessages: true,
+          ReadMessageHistory: true,
+          ManageChannels: true,
+        })
+        .catch((err) => console.error("No se pudo dar acceso al rol de la categoría:", err));
  
-      const channel = await guild.channels.create({
-        name: `ticket-pendiente-${padNum(ticketNumber)}`,
-        type: ChannelType.GuildText,
-        parent: TICKET_CATEGORY_ID || undefined,
-        topic: `${interaction.user.id}:${category.value}`, // guarda dueño y categoría del ticket
-        permissionOverwrites: [
-          { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-          {
-            id: interaction.user.id,
-            allow: [
-              PermissionFlagsBits.ViewChannel,
-              PermissionFlagsBits.SendMessages,
-              PermissionFlagsBits.ReadMessageHistory,
-            ],
-          },
-          {
-            id: primaryRoleId,
-            allow: [
-              PermissionFlagsBits.ViewChannel,
-              PermissionFlagsBits.SendMessages,
-              PermissionFlagsBits.ReadMessageHistory,
-              PermissionFlagsBits.ManageChannels,
-            ],
-          },
-          {
-            id: client.user.id,
-            allow: [
-              PermissionFlagsBits.ViewChannel,
-              PermissionFlagsBits.SendMessages,
-              PermissionFlagsBits.ReadMessageHistory,
-              PermissionFlagsBits.ManageChannels,
-              PermissionFlagsBits.ManageRoles,
-            ],
-          },
-        ],
-      });
- 
-      ticketNumbers.set(channel.id, ticketNumber);
+      const ticketNumber = ticketNumbers.get(channel.id);
       ticketLastOwnerActivity.set(channel.id, Date.now());
-      ticketCooldowns.set(interaction.user.id, Date.now() + TICKET_COOLDOWN_SECONDS * 1000);
  
       const embed = new EmbedBuilder()
         .setTitle(`${interaction.user.username} Support`)
@@ -1027,7 +1047,7 @@ client.on("interactionCreate", async (interaction) => {
         )
         .setColor(0x2b6cb0)
         .setFooter({
-          text: `#${padNum(ticketNumber)} • ${interaction.user.username} • Sin reclamar`,
+          text: `${ticketNumber ? `#${padNum(ticketNumber)} • ` : ""}${interaction.user.username} • Sin reclamar`,
           iconURL: interaction.user.displayAvatarURL(),
         })
         .setTimestamp();
@@ -1047,18 +1067,18 @@ client.on("interactionCreate", async (interaction) => {
       const row = new ActionRowBuilder().addComponents(claimButton, closeButton);
  
       await channel.send({
-        content: `<@&${primaryRoleId}> | ${interaction.user}`,
+        content: `<@&${primaryRoleId}> | <@${ownerId}>`,
         embeds: [embed],
         components: [row],
       });
  
-      await interaction.editReply({ content: `Tu ticket fue creado: ${channel}` });
+      await interaction.editReply({ content: "✅ Ticket configurado." });
       scheduleTicketReminder(channel, primaryRoleId);
       await logStat("CREATE", {
         channel: channel.id,
-        owner: interaction.user.id,
+        owner: ownerId,
         category: category.value,
-        number: ticketNumber,
+        number: ticketNumber || 0,
       });
       return;
     }
