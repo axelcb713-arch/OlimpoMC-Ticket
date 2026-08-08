@@ -42,7 +42,7 @@ const BLACKLIST_MANAGER_ROLE_IDS = [HEAD_STAFF_ROLE_ID, FOUNDER_ROLE_ID, OWNER_R
  
 const STAFF_REMINDER_MINUTES = 25;
 const MANAGEMENT_ALERT_MINUTES = 30;
-const INACTIVITY_HOURS = 16;
+const INACTIVITY_HOURS = 5;
 const INACTIVITY_CHECK_INTERVAL_MINUTES = 15;
 const TICKET_COOLDOWN_SECONDS = 60;
  
@@ -141,21 +141,70 @@ function sanitizeName(str) {
   return str.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-_]/g, "");
 }
  
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+ 
 async function generateTranscript(channel) {
   const messages = await channel.messages.fetch({ limit: 100 });
   const sorted = Array.from(messages.values()).reverse();
  
-  const lines = sorted.map((msg) => {
-    const time = msg.createdAt.toLocaleString("es-CO");
-    const author = msg.author.tag;
-    const content = msg.content || "[sin texto — embed/adjunto]";
-    return `[${time}] ${author}: ${content}`;
+  const rows = sorted
+    .map((msg) => {
+      const time = msg.createdAt.toLocaleString("es-CO");
+      const author = escapeHtml(msg.author.tag);
+      const avatarLetter = escapeHtml(msg.author.username.charAt(0).toUpperCase());
+      const content = msg.content
+        ? escapeHtml(msg.content).replace(/\n/g, "<br>")
+        : "<i>[sin texto — embed/adjunto]</i>";
+      const attachmentsHtml = msg.attachments.size
+        ? `<div class="attachments">📎 ${msg.attachments.size} adjunto(s)</div>`
+        : "";
+      return `<div class="message">
+        <div class="avatar">${avatarLetter}</div>
+        <div class="message-body">
+          <div class="message-header">
+            <span class="author">${author}</span>
+            <span class="timestamp">${time}</span>
+          </div>
+          <div class="content">${content}</div>
+          ${attachmentsHtml}
+        </div>
+      </div>`;
+    })
+    .join("\n");
+ 
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Transcript de #${escapeHtml(channel.name)}</title>
+<style>
+  body { background:#313338; color:#dbdee1; font-family: 'gg sans', 'Helvetica Neue', Arial, sans-serif; margin:0; padding:24px; }
+  h1 { color:#fff; font-size:20px; border-bottom:1px solid #3f4147; padding-bottom:12px; }
+  .message { display:flex; gap:16px; padding:10px 0; border-bottom:1px solid #2b2d31; }
+  .avatar { width:40px; height:40px; border-radius:50%; background:#5865f2; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:bold; flex-shrink:0; }
+  .message-header { display:flex; align-items:baseline; gap:8px; }
+  .author { color:#fff; font-weight:600; }
+  .timestamp { color:#949ba4; font-size:12px; }
+  .content { margin-top:2px; white-space:pre-wrap; word-break:break-word; }
+  .attachments { color:#949ba4; font-size:13px; margin-top:4px; }
+</style>
+</head>
+<body>
+  <h1>📄 Transcript de #${escapeHtml(channel.name)} — ${sorted.length} mensajes</h1>
+  ${rows}
+</body>
+</html>`;
+ 
+  const attachment = new AttachmentBuilder(Buffer.from(html, "utf-8"), {
+    name: `transcript-${channel.name}.html`,
   });
  
-  const text = `Transcript de #${channel.name}\n${"=".repeat(40)}\n\n${lines.join("\n")}`;
-  return new AttachmentBuilder(Buffer.from(text, "utf-8"), {
-    name: `transcript-${channel.name}.txt`,
-  });
+  return { attachment, count: sorted.length };
 }
  
 // --- Log de estadísticas (usa un canal de Discord como "base de datos" simple) ---
@@ -256,7 +305,7 @@ async function closeTicketChannel(channel, { closedById, outcome }) {
           content: `📄 Transcript de **#${channel.name}** — cerrado por ${
             closedById ? `<@${closedById}>` : "inactividad"
           }${ownerId ? ` | dueño: <@${ownerId}>` : ""}`,
-          files: [transcript],
+          files: [transcript.attachment],
         });
       }
     } catch (err) {
@@ -269,11 +318,15 @@ async function closeTicketChannel(channel, { closedById, outcome }) {
       const ownerUser = await client.users.fetch(ownerId);
       await ownerUser.send({
         content: `📄 Aquí está el transcript de tu ticket **#${channel.name}** en OlimpoMC.`,
-        files: [transcript],
+        files: [transcript.attachment],
       });
     } catch (err) {
       console.error("No se pudo enviar el transcript por DM al usuario:", err);
     }
+  }
+ 
+  if (transcript) {
+    await channel.send(`✅ Exported ${transcript.count} messages.`).catch(() => {});
   }
  
   await logStat("CLOSE", {
@@ -297,17 +350,24 @@ async function closeTicketChannel(channel, { closedById, outcome }) {
  
   setTimeout(() => {
     channel.delete().catch(() => {});
-  }, 5000);
+  }, 10000);
 }
  
-async function handleTicketClose(interaction, replyText) {
+async function handleTicketClose(interaction) {
   const lockKey = `close:${interaction.channel.id}`;
   if (!tryLock(lockKey)) {
     await interaction.reply({ content: "Ya se está procesando el cierre de este ticket.", ephemeral: true });
     return;
   }
   try {
-    await interaction.reply(replyText);
+    const embed = new EmbedBuilder()
+      .setTitle("🗄️ Guardando logs...")
+      .setDescription(
+        "El ticket se cerrará en menos de 10 segundos. Activa tus mensajes privados para poder recibir los logs."
+      )
+      .setColor(0xed4245)
+      .setFooter({ text: interaction.user.tag });
+    await interaction.reply({ embeds: [embed] });
     await closeTicketChannel(interaction.channel, { closedById: interaction.user.id, outcome: "success" });
   } finally {
     unlock(lockKey);
@@ -326,9 +386,13 @@ setInterval(async () => {
         ticketLastOwnerActivity.delete(channelId);
         continue;
       }
-      await channel.send(
-        `🔒 Este ticket se cierra automáticamente por llevar más de ${INACTIVITY_HOURS} horas sin respuesta del usuario.`
-      );
+      const embed = new EmbedBuilder()
+        .setTitle("🗄️ Guardando logs...")
+        .setDescription(
+          `Este ticket se cierra automáticamente por llevar más de ${INACTIVITY_HOURS} horas sin respuesta del usuario. El ticket se cerrará en menos de 10 segundos.`
+        )
+        .setColor(0xed4245);
+      await channel.send({ embeds: [embed] });
       await closeTicketChannel(channel, { closedById: null, outcome: "abandoned" });
     } catch (err) {
       console.error("Error en el auto-cierre por inactividad:", err);
@@ -397,7 +461,7 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: "No tienes permiso para cerrar este ticket.", ephemeral: true });
         return;
       }
-      await handleTicketClose(interaction, "🔒 Cerrando ticket en 5 segundos...");
+      await handleTicketClose(interaction);
       return;
     }
  
@@ -1017,7 +1081,7 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: "No tienes permiso para eliminar este ticket.", ephemeral: true });
         return;
       }
-      await handleTicketClose(interaction, "🔒 Eliminando ticket en 5 segundos...");
+      await handleTicketClose(interaction);
       return;
     }
  
