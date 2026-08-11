@@ -14,7 +14,7 @@ const {
   ChannelType,
   AttachmentBuilder,
 } = require("discord.js");
-const { ticketCategories, transferCategories, REPORTS_STAFF_ROLE_ID, OWNER_ROLE_ID } = require("./config");
+const { ticketCategories, transferCategories, OWNER_ROLE_ID } = require("./config");
  
 const client = new Client({
   intents: [
@@ -593,7 +593,7 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply({ content: "Este comando solo se puede usar dentro de un ticket.", ephemeral: true });
         return;
       }
-      if (!isStaffInChannel(interaction) && !isTicketOwner(interaction)) {
+      if (!isStaffInChannel(interaction)) {
         await interaction.reply({ content: "No tienes permiso para cerrar este ticket.", ephemeral: true });
         return;
       }
@@ -1022,13 +1022,9 @@ client.on("interactionCreate", async (interaction) => {
         if (pickerMsg) pickerMsg.delete().catch(() => {});
       }
  
-      // "Reportes de staff" y "Buycraft" son exclusivos: no los ve el @Soporte general
-      const primaryRoleId =
-        category.value === "reportes_staff"
-          ? REPORTS_STAFF_ROLE_ID
-          : category.value === "buycraft"
-          ? OWNER_ROLE_ID
-          : SUPPORT_ROLE_ID;
+      // Todas las categorías del panel van al staff de Soporte general;
+      // las especializadas se alcanzan transfiriendo el ticket con /transfer
+      const primaryRoleId = SUPPORT_ROLE_ID;
  
       await channel.setTopic(`${ownerId}:${category.value}`).catch(() => {});
       await channel.permissionOverwrites
@@ -1148,7 +1144,7 @@ client.on("interactionCreate", async (interaction) => {
  
     // ---------- Botón Eliminar ----------
     if (interaction.isButton() && interaction.customId === "ticket_close") {
-      if (!isStaffInChannel(interaction) && !isTicketOwner(interaction)) {
+      if (!isStaffInChannel(interaction)) {
         await interaction.reply({ content: "No tienes permiso para eliminar este ticket.", ephemeral: true });
         return;
       }
